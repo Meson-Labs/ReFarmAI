@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finance Specialist</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>    
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="app.js" defer></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        /* Hide scrollbar for clean textarea look (optional) */
+        textarea::-webkit-scrollbar { width: 0px; background: transparent; }
+    </style>
+</head>
+<body class="bg-slate-50 h-screen flex flex-col items-center justify-center overflow-hidden text-slate-800">
+
+    <div id="login-section" class="w-full max-w-md bg-white shadow-2xl rounded-2xl overflow-hidden p-10 transform transition-all">
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 mb-4">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+            </div>
+            <h1 class="text-3xl font-bold text-slate-800 tracking-tight">Welcome Back</h1>
+            <p class="text-slate-500 mt-2 text-sm">Sign in here</p>
+        </div>
+        
+        <form id="login-form" class="space-y-5">
+            <div>
+                <label class="block text-slate-700 text-xs font-semibold uppercase tracking-wider mb-2" for="username">Username</label>
+                <input type="text" id="username" class="w-full border border-slate-300 p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all bg-slate-50" placeholder="" required>
+            </div>
+            <div>
+                <label class="block text-slate-700 text-xs font-semibold uppercase tracking-wider mb-2" for="password">Password</label>
+                <input type="password" id="password" class="w-full border border-slate-300 p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all bg-slate-50" placeholder="••••••••" required>
+            </div>
+            <div id="login-error" class="text-red-500 text-xs hidden bg-red-50 p-2 rounded border border-red-100 flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                Invalid credentials.
+            </div>
+            <button type="submit" class="w-full bg-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-indigo-700 transition duration-200 shadow-lg hover:shadow-indigo-500/30">
+                Sign In
+            </button>
+        </form>
+    </div>
+
+    <div id="chat-section" class="w-full h-screen hidden flex overflow-hidden bg-slate-50 relative">
+        
+        <div id="sidebar" class="bg-slate-900 text-slate-300 flex flex-col transition-all duration-300 ease-in-out absolute md:relative z-30 h-full shadow-2xl w-64 md:translate-x-0 -translate-x-full border-r border-slate-800">
+            <div class="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-900/50 backdrop-blur-sm">
+                <div class="flex items-center gap-2 overflow-hidden whitespace-nowrap">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <h2 class="font-semibold text-sm tracking-wide text-white uppercase">History</h2>
+                </div>
+                <button id="close-sidebar-btn" class="md:hidden text-slate-400 hover:text-white transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            <div id="history-list" class="flex-1 overflow-y-auto p-3 space-y-1 custom-scrollbar">
+                </div>
+            
+            <div class="p-4 border-t border-slate-800 bg-slate-900/50">
+                <div class="flex items-center justify-between mb-4 overflow-hidden">
+                    <div class="flex items-center gap-2">
+                        <div class="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white text-xs font-bold" id="user-avatar">U</div>
+                        <div class="text-xs truncate max-w-[100px]">
+                            <p class="text-white font-medium" id="username-display">User</p>
+                            <p class="text-slate-500">Online</p>
+                        </div>
+                    </div>
+                </div>
+                 <button id="logout-btn" class="w-full border border-slate-700 hover:border-red-500 hover:text-red-500 text-slate-400 py-2 rounded-lg transition text-xs font-medium flex items-center justify-center gap-2 group">
+                    <svg class="w-4 h-4 group-hover:text-red-500 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                    <span>Sign Out</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="flex-1 flex flex-col h-full relative w-full bg-white">
+            
+            <div class="bg-white/80 backdrop-blur-md border-b border-slate-200 p-4 flex justify-between items-center z-20 h-16 flex-shrink-0">
+                <div class="flex items-center gap-4">
+                    <button id="toggle-sidebar-btn" class="text-slate-500 hover:text-indigo-600 transition p-2 hover:bg-slate-100 rounded-lg">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"></path></svg>
+                    </button>
+                    
+                    <div class="flex flex-col">
+                        <h1 class="font-bold text-slate-800 text-lg leading-tight">Acme Finance Corner</h1>
+                        <span id="session-badge" class="text-[10px] text-slate-400 font-mono hidden md:inline-block">Waiting for session...</span>
+                    </div>
+                </div>
+
+                <div class="flex gap-3 items-center">
+                    <button id="new-chat-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition text-sm font-medium shadow-sm hover:shadow-indigo-500/20 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                        <span class="hidden sm:inline">New Chat</span>
+                    </button>
+
+                    <!-- Admin Menu (Hidden by default, shown for admin users) -->
+                    <div id="admin-menu" class="hidden relative">
+                        <button id="admin-dropdown-btn" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition text-sm font-medium shadow-sm hover:shadow-purple-500/20 flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+                            </svg>
+                            <span>Admin Tasks</span>
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                            </svg>
+                        </button>
+
+                        <!-- Dropdown Menu -->
+                        <div id="admin-dropdown" class="hidden absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-slate-200 z-50">
+                            <a href="#" onclick="openAdminTool('prompt_trainer'); return false;" class="block px-4 py-3 text-sm text-slate-700 hover:bg-indigo-50 rounded-t-lg transition flex items-center gap-3 border-b border-slate-100">
+                                <svg class="w-5 h-5 text-indigo-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                </svg>
+                                <div>
+                                    <div class="font-semibold text-slate-800">Prompt Trainer</div>
+                                    <div class="text-xs text-slate-500">Edit and manage system prompts</div>
+                                </div>
+                            </a>
+
+                            <a href="#" onclick="openAdminTool('prompt_evaluator'); return false;" class="block px-4 py-3 text-sm text-slate-700 hover:bg-green-50 rounded-b-lg transition flex items-center gap-3">
+                                <svg class="w-5 h-5 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+                                </svg>
+                                <div>
+                                    <div class="font-semibold text-slate-800">Prompt Evaluator</div>
+                                    <div class="text-xs text-slate-500">Test prompt performance</div>
+                                </div>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="chat-container" class="flex-1 p-4 md:p-8 overflow-y-auto space-y-6 bg-slate-50 flex flex-col">
+                <div class="flex gap-4 max-w-3xl">
+                    <div class="w-8 h-8 rounded-full bg-indigo-600 flex-shrink-0 flex items-center justify-center text-white text-xs font-bold"></div>
+                    <div class="bg-white text-slate-700 p-4 rounded-2xl rounded-tl-none border border-slate-200 shadow-sm max-w-[85%]">
+                        <div class="markdown-content">
+                            <p>Hi there! How can I help you today?</p>
+                        </div>
+                        <p class="text-sm text-slate-500 mt-1 border-t border-slate-100 pt-2">Financial Products Corner</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="w-full bg-white border-t border-slate-200 p-4 pb-6 z-20 flex-shrink-0">
+                <div class="max-w-4xl mx-auto bg-white p-2 rounded-2xl border border-slate-200 shadow-xl flex gap-2 items-end relative ring-1 ring-slate-100">
+                    
+                    <input type="file" id="file-input" class="hidden">
+                    <button id="upload-btn" class="p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition flex-shrink-0 h-12 w-12 flex items-center justify-center" title="Upload Document">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+                    </button>
+                    
+                    <button id="mic-btn" class="p-3 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition border border-transparent flex-shrink-0 h-12 w-12 flex items-center justify-center" title="Voice Chat">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
+                    </button>
+                    
+                    <textarea id="user-input" rows="1" class="flex-1 bg-transparent border-none focus:ring-0 text-slate-700 placeholder-slate-400 px-2 py-3 resize-none max-h-48 overflow-y-auto" placeholder="Ask various financial products such as car loan, mortgage..."></textarea>
+                    
+                    <button id="send-btn" class="bg-indigo-600 text-white p-3 rounded-xl hover:bg-indigo-700 transition shadow-md hover:shadow-lg transform active:scale-95 flex-shrink-0 h-12 w-12 flex items-center justify-center">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                    </button>
+
+                    <div id="voice-status" class="absolute -top-10 left-1/2 transform -translate-x-1/2 bg-red-500 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-lg hidden flex items-center gap-2 animate-pulse pointer-events-none">
+                        <span class="w-2 h-2 bg-white rounded-full"></span> Live Voice Active
+                    </div>
+                </div>
+                <div class="text-center mt-2">
+                    <span id="status" class="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">Ready</span>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</body>
+</html>

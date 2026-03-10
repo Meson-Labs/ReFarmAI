@@ -1,0 +1,521 @@
+/**
+ * Configuration & Constants
+ */
+const API_BASE = window.location.origin; 
+// Swap protocol for WebSocket (http -> ws, https -> wss)
+const WS_BASE = API_BASE.replace(/^http/, "ws");
+
+// State Variables
+let USER_ID = null;
+let SESSION_ID = null;
+
+// Voice State
+let isRecording = false;
+let isConnecting = false;
+let socket = null;
+let audioContext = null;
+let sourceNode = null;
+let processorNode = null;
+let nextStartTime = 0;       // For scheduling seamless audio chunks
+let currentAudioSource = null; // Track currently playing node for barge-in cancellation
+
+// DOM Elements
+const loginSection = document.getElementById('login-section');
+const chatSection = document.getElementById('chat-section');
+const loginForm = document.getElementById('login-form');
+const loginError = document.getElementById('login-error');
+const chatContainer = document.getElementById('chat-container');
+const userInput = document.getElementById('user-input');
+const sendBtn = document.getElementById('send-btn');
+const micBtn = document.getElementById('mic-btn');
+const voiceStatus = document.getElementById('voice-status');
+const uploadBtn = document.getElementById('upload-btn');
+const fileInput = document.getElementById('file-input');
+const sessionBadge = document.getElementById('session-badge');
+const logoutBtn = document.getElementById('logout-btn');
+const statusDiv = document.getElementById('status');
+const newChatBtn = document.getElementById('new-chat-btn');
+const historyList = document.getElementById('history-list');
+const sidebar = document.getElementById('sidebar');
+const toggleSidebarBtn = document.getElementById('toggle-sidebar-btn');
+const closeSidebarBtn = document.getElementById('close-sidebar-btn');
+
+/**
+ * 1. Initialization & Persistence
+ */
+document.addEventListener('DOMContentLoaded', () => {
+    // Check Local Storage for existing session
+    const storedUser = localStorage.getItem('chat_user_id');
+    const storedSession = localStorage.getItem('chat_session_id');
+
+    if (storedUser && storedSession) {
+        USER_ID = storedUser;
+        SESSION_ID = storedSession;
+        console.log("Restoring session:", SESSION_ID);
+        initializeChat(false); // Restore mode
+    }
+});
+
+// Sidebar Mobile Toggles
+toggleSidebarBtn.addEventListener('click', () => sidebar.classList.remove('-translate-x-full'));
+closeSidebarBtn.addEventListener('click', () => sidebar.classList.add('-translate-x-full'));
+
+/**
+ * 2. Authentication Logic
+ */
+loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const username = document.getElementById('username').value;
+    const password = document.getElementById('password').value;
+    const submitBtn = loginForm.querySelector('button[type="submit"]');
+
+    // UI Loading State
+    submitBtn.disabled = true;
+    submitBtn.innerText = "Signing in...";
+    loginError.classList.add('hidden');
+
+    try {
+        const response = await fetch(`${API_BASE}/aulogin`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+
+        if (!response.ok) throw new Error("Auth failed");
+
+        const data = await response.json();
+        
+        // Set State
+        USER_ID = data.user_id || username;
+        // If backend sends a session_id, use it, otherwise generate one
+        SESSION_ID = data.session_id || crypto.randomUUID(); 
+        
+        // Save to LocalStorage
+        localStorage.setItem('chat_user_id', USER_ID);
+        localStorage.setItem('chat_session_id', SESSION_ID);
+
+        initializeChat(true); // New login mode
+
+    } catch (err) {
+        console.error("Login failed:", err);
+        loginError.classList.remove('hidden');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerText = "Sign In";
+    }
+});
+
+function initializeChat(isNewLogin) {
+    loginSection.classList.add('hidden');
+    chatSection.classList.remove('hidden');
+    chatSection.classList.add('flex'); // Enable flex layout
+    
+    updateSessionBadge();
+    statusDiv.innerText = `Logged in as ${USER_ID}`;
+    
+    loadSessions(); // Populate sidebar
+
+    // If restoring page (not a fresh login), load message history
+    if (!isNewLogin) {
+        loadHistory(SESSION_ID);
+    }
+}
+
+// Logout
+logoutBtn.addEventListener('click', () => {
+    localStorage.removeItem('chat_user_id');
+    localStorage.removeItem('chat_session_id');
+    window.location.reload();
+});
+
+/**
+ * 3. History & Session Management
+ */
+async function loadSessions() {
+    try {
+        const res = await fetch(`${API_BASE}/sessions?user_id=${USER_ID}`);
+        if(!res.ok) return;
+        const data = await res.json();
+        
+        historyList.innerHTML = ''; // Clear existing list
+        
+        data.sessions.forEach(session => {
+            const btn = document.createElement('button');
+            // Styling for sidebar items
+            btn.className = "w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white rounded truncate transition";
+            btn.innerText = session.title || "Untitled Session";
+            btn.title = session.title; // Tooltip
+            
+            // On Click: Switch Session
+            btn.onclick = () => {
+                switchSession(session.session_id);
+            };
+            historyList.appendChild(btn);
+        });
+    } catch (err) {
+        console.error("Error loading sessions:", err);
+    }
+}
+
+async function loadHistory(sessionId) {
+    chatContainer.innerHTML = ''; // Clear UI
+    try {
+        const res = await fetch(`${API_BASE}/history?session_id=${sessionId}`);
+        if(!res.ok) return;
+        const data = await res.json();
+        
+        // Re-hydrate UI
+        if (data.history.length === 0) {
+            appendMessage('assistant', "Welcome back! How can I help you today?");
+        } else {
+            data.history.forEach(msg => {
+                appendMessage(msg.role, msg.content);
+            });
+        }
+    } catch (err) {
+        console.error("Error loading history:", err);
+    }
+}
+
+function switchSession(newSessionId) {
+    SESSION_ID = newSessionId;
+    localStorage.setItem('chat_session_id', SESSION_ID);
+    updateSessionBadge();
+    loadHistory(SESSION_ID);
+    
+    // Close sidebar on mobile
+    if (window.innerWidth < 768) {
+        sidebar.classList.add('-translate-x-full');
+    }
+}
+
+// New Chat Button Logic
+newChatBtn.addEventListener('click', () => {
+    SESSION_ID = crypto.randomUUID();
+    localStorage.setItem('chat_session_id', SESSION_ID);
+    chatContainer.innerHTML = ''; 
+    appendMessage('assistant', "Starting a new conversation. What's on your mind?");
+    updateSessionBadge();
+    loadSessions(); // Refresh sidebar to show the previous one saved
+});
+
+function updateSessionBadge() {
+    sessionBadge.innerText = `ID: ${SESSION_ID.slice(0, 8)}`;
+}
+
+/**
+ * 4. Chat UI Logic
+ */
+function appendMessage(role, text, artifacts = null) {
+    const div = document.createElement('div');
+    const isUser = role === 'user';
+    
+    // Alignment Classes: User Right (Blue), Bot Left (White)
+    div.className = isUser 
+        ? "bg-blue-600 text-white p-3 rounded-lg rounded-br-none self-end max-w-[85%] chat-message shadow-md mb-2" 
+        : "bg-white text-gray-800 p-3 rounded-lg rounded-bl-none self-start max-w-[85%] border border-gray-200 chat-message shadow-sm mb-2";
+    
+    div.innerHTML = `<strong class="block text-[10px] mb-1 opacity-70 uppercase tracking-wide">${role}</strong>${text}`;
+    
+    // Search Artifacts / Sources
+    if (artifacts && artifacts.search_sources) {
+        div.innerHTML += `
+            <hr class="my-2 border-white/20">
+            <details class="text-xs cursor-pointer">
+                <summary class="font-semibold opacity-75 hover:opacity-100">View Sources</summary>
+                <div class="mt-1 p-2 bg-black/10 rounded">${artifacts.search_sources}</div>
+            </details>`;
+    }
+    
+    chatContainer.appendChild(div);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+}
+
+async function sendMessage() {
+    const message = userInput.value.trim();
+    if (!message) return;
+
+    appendMessage('user', message);
+    userInput.value = "";
+    
+    // Loading State
+    const loadingId = "loading-" + Date.now();
+    const loadingDiv = document.createElement('div');
+    loadingDiv.id = loadingId;
+    loadingDiv.className = "text-gray-400 text-xs self-start ml-2 mb-2 italic";
+    loadingDiv.innerText = "Assistant is thinking...";
+    chatContainer.appendChild(loadingDiv);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+
+    try {
+        const response = await fetch(`${API_BASE}/chat_auth`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session_id: SESSION_ID,
+                user_id: USER_ID,
+                message: message
+            })
+        });
+
+        // Remove loading
+        document.getElementById(loadingId)?.remove();
+
+        if (!response.ok) throw new Error("API Error");
+
+        const data = await response.json();
+        appendMessage('assistant', data.reply, data.artifacts);
+        
+        // Refresh sidebar in case title changed
+        loadSessions(); 
+
+    } catch (err) {
+        document.getElementById(loadingId)?.remove();
+        console.error(err);
+        appendMessage('system', "⚠️ Error sending message. Please try again.");
+    }
+}
+
+/**
+ * 5. File Upload Logic
+ */
+async function handleUpload() {
+    const file = fileInput.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    appendMessage('system', `Uploading <strong>${file.name}</strong>...`);
+
+    try {
+        const response = await fetch(`${API_BASE}/upload?session_id=${SESSION_ID}`, {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) throw new Error("Upload failed");
+
+        appendMessage('system', `✅ File uploaded successfully.`);
+    } catch (err) {
+        appendMessage('system', "❌ Upload failed.");
+    } finally {
+        fileInput.value = ''; 
+    }
+}
+
+/**
+ * 6. Real-time Voice Logic (with Barge-In & Transcripts)
+ */
+function floatTo16BitPCM(input) {
+    const output = new Int16Array(input.length);
+    for (let i = 0; i < input.length; i++) {
+        const s = Math.max(-1, Math.min(1, input[i]));
+        output[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    return output;
+}
+
+function convertInt16ToFloat32(int16Array) {
+    const float32 = new Float32Array(int16Array.length);
+    for (let i = 0; i < int16Array.length; i++) {
+        float32[i] = int16Array[i] >= 0 ? int16Array[i] / 32767 : int16Array[i] / 32768;
+    }
+    return float32;
+}
+
+async function startVoiceSession() {
+    if (isConnecting) return;
+    if (isRecording) {
+        stopVoiceSession();
+        return;
+    }
+
+    try {
+        isConnecting = true;
+        micBtn.disabled = true; 
+        
+        // 1. Audio Context Init
+        if (!audioContext || audioContext.state === 'closed') {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+        }
+        if (audioContext.state === 'suspended') {
+            await audioContext.resume();
+        }
+
+        // 2. WebSocket Init
+        const wsUrl = `${WS_BASE}/ws/realtime?session_id=${SESSION_ID}&user_id=${USER_ID}`;
+        console.log("Connecting to WS:", wsUrl);
+        socket = new WebSocket(wsUrl);
+        
+        socket.onopen = async () => {
+            console.log("WebSocket Connected");
+            isConnecting = false;
+            isRecording = true;
+            
+            // UI Update
+            micBtn.disabled = false;
+            micBtn.classList.remove("bg-gray-200", "text-gray-600");
+            micBtn.classList.add("bg-red-500", "text-white", "animate-pulse");
+            voiceStatus.classList.remove("hidden");
+            
+            await startMicrophone(audioContext);
+        };
+
+        socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            
+            // --- A. Play Audio ---
+            if (data.type === "response.audio.delta" && data.delta) {
+                playAudioChunk(data.delta);
+            }
+
+            // --- B. Barge-In Handling (Interruption) ---
+            // If the server detects user speech, it sends this event.
+            // We must immediately stop whatever the bot is saying.
+            if (data.type === "input_audio_buffer.speech_started") {
+                console.log("Barge-in detected: Stopping playback.");
+                stopAudioPlayback();
+            }
+
+            // --- C. Transcripts (User) ---
+            if (data.type === "conversation.item.input_audio_transcription.completed") {
+                const transcript = data.transcript;
+                if (transcript) appendMessage("user", transcript);
+            }
+            
+            // --- D. Transcripts (Assistant) ---
+            if (data.type === "response.audio_transcript.done") {
+                const transcript = data.transcript;
+                if (transcript) appendMessage("assistant", transcript);
+            }
+        };
+
+        socket.onerror = (err) => {
+            console.error("WebSocket Error:", err);
+            stopVoiceSession();
+        };
+
+        socket.onclose = () => {
+            console.log("WebSocket Closed");
+            stopVoiceSession();
+        };
+
+    } catch (err) {
+        console.error("Voice Initialization Error:", err);
+        stopVoiceSession();
+    }
+}
+
+async function startMicrophone(ctx) {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (!ctx || ctx.state === 'closed') return;
+
+        sourceNode = ctx.createMediaStreamSource(stream);
+        processorNode = ctx.createScriptProcessor(4096, 1, 1);
+
+        processorNode.onaudioprocess = (e) => {
+            if (!isRecording || !socket || socket.readyState !== WebSocket.OPEN) return;
+            
+            const inputData = e.inputBuffer.getChannelData(0);
+            const pcm16 = floatTo16BitPCM(inputData);
+            
+            const reader = new FileReader();
+            reader.onload = () => {
+                const base64Audio = reader.result.split(',')[1];
+                socket.send(JSON.stringify({
+                    type: "input_audio_buffer.append",
+                    audio: base64Audio
+                }));
+            };
+            reader.readAsDataURL(new Blob([pcm16.buffer]));
+        };
+
+        sourceNode.connect(processorNode);
+        processorNode.connect(ctx.destination);
+    } catch (err) {
+        console.error("Mic Error:", err);
+        stopVoiceSession();
+    }
+}
+
+function stopVoiceSession() {
+    isRecording = false;
+    isConnecting = false;
+    
+    micBtn.disabled = false;
+    micBtn.classList.remove("bg-red-500", "text-white", "animate-pulse");
+    micBtn.classList.add("bg-gray-200", "text-gray-600");
+    voiceStatus.classList.add("hidden");
+
+    if (sourceNode) { sourceNode.disconnect(); sourceNode = null; }
+    if (processorNode) { processorNode.disconnect(); processorNode = null; }
+    if (socket) { socket.close(); socket = null; }
+    if (audioContext) { 
+        audioContext.close(); 
+        audioContext = null; 
+    }
+}
+
+/**
+ * Audio Playback & Cancellation Logic
+ */
+function playAudioChunk(base64Audio) {
+    if (!audioContext) return;
+    
+    // Decode Base64 to Float32
+    const binary = window.atob(base64Audio);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const float32Data = convertInt16ToFloat32(new Int16Array(bytes.buffer));
+    
+    const buffer = audioContext.createBuffer(1, float32Data.length, 24000);
+    buffer.getChannelData(0).set(float32Data);
+
+    const source = audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioContext.destination);
+
+    const currentTime = audioContext.currentTime;
+    
+    // Schedule next chunk
+    if (nextStartTime < currentTime) nextStartTime = currentTime;
+    source.start(nextStartTime);
+    nextStartTime += buffer.duration;
+
+    // Track for barge-in
+    currentAudioSource = source;
+}
+
+// Immediately stops audio (called on speech_started)
+function stopAudioPlayback() {
+    if (currentAudioSource) {
+        try {
+            currentAudioSource.stop();
+        } catch (e) { }
+        currentAudioSource = null;
+    }
+    // Reset scheduling time so next bot response starts fresh
+    if (audioContext) {
+        nextStartTime = audioContext.currentTime;
+    }
+}
+
+
+/**
+ * Event Listeners
+ */
+sendBtn.addEventListener('click', sendMessage);
+
+micBtn.addEventListener('click', () => {
+    startVoiceSession();
+});
+
+userInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendMessage();
+});
+
+uploadBtn.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', handleUpload);
