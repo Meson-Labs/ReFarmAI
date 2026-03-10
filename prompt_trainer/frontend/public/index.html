@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Prompt Manager</title>
+    <style>
+        :root { --primary: #0078D4; --bg: #f3f2f1; --success: #107C10; --border: #e1dfdd; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; padding: 20px; display: flex; height: 100vh; box-sizing: border-box;}
+        
+        .container { display: flex; width: 100%; gap: 20px; height: 100%; }
+        
+        .sidebar-col {
+            background: white; padding: 20px; border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            display: flex; flex-direction: column; overflow: hidden;
+        }
+
+        .col-products { width: 220px; flex-shrink: 0; }
+        .col-history { width: 280px; flex-shrink: 0; }
+        .col-main { flex: 1; display: flex; flex-direction: column; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+
+        .scroll-list { flex: 1; overflow-y: auto; margin-bottom: 15px; }
+        .list-item { padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer; transition: 0.2s; }
+        .list-item:hover { background: #f9f9f9; }
+        .list-item.active { background: #e6f2ff; border-left: 4px solid var(--primary); font-weight: 600; }
+        
+        h3 { margin-top: 0; border-bottom: 1px solid var(--border); padding-bottom: 10px; font-size: 1.1em;}
+        h2 { margin-top: 0; }
+        .badge { font-size: 0.75em; padding: 2px 6px; border-radius: 4px; background: #eee; float: right;}
+        .badge.prod { background: var(--success); color: white; }
+
+        textarea { width: 100%; flex: 1; padding: 15px; font-family: monospace; border: 1px solid #ccc; border-radius: 4px; resize: none; margin-bottom: 20px; font-size: 14px; line-height: 1.5;}
+        
+        .controls { display: flex; gap: 10px; align-items: center; padding-top: 10px; border-top: 1px solid #eee; }
+        button { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; transition: 0.2s; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-record { background: #d83b01; color: white; }
+        .btn-record.recording { animation: pulse 1.5s infinite; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-logout { background-color: #f3f2f1; color: #333; border: 1px solid #e1dfdd; width: 100%; margin-top: auto;}
+        .btn-logout:hover { background-color: #edebe9; color: #000; }
+        
+        #status { margin-left: auto; color: #666; font-style: italic; font-size: 0.9em; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- Add navigation button in header -->
+    <div style="position: absolute; top: 20px; right: 20px; z-index: 100;">
+        <button onclick="window.location.href='http://localhost:6676'" class="btn-primary" style="padding: 8px 16px; font-size: 14px;">
+            ← Back to Chat
+        </button>
+    </div>
+
+    <div class="sidebar-col col-products">
+        <h3>Products</h3>
+        <div id="productList" class="scroll-list">Loading...</div>
+        <button class="btn-logout" onclick="logout()">Sign Out</button>
+    </div>
+
+    <div class="sidebar-col col-history">
+        <h3>Versions</h3>
+        <div id="historyList" class="scroll-list">
+            <div style="color:#999; padding:10px;">Select a product...</div>
+        </div>
+    </div>
+
+    <div class="col-main">
+        <h2 id="headerTitle">Select a Prompt</h2>
+        <textarea id="promptEditor" placeholder="Select a product and version to view the prompt..."></textarea>
+        <div class="controls">
+            <button id="saveBtn" class="btn-primary" onclick="saveManualUpdate()" disabled>Save Edit</button>
+            <button id="recordBtn" class="btn-record" onmousedown="startRecording()" onmouseup="stopRecording()" disabled>Hold to Speak Updates</button>
+            <button id="prodBtn" class="btn-success" onclick="markAsProduction()" style="display:none;">Set as Production</button>
+            <span id="status"></span>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Use keys set by main chat
+    const storedOrgId = localStorage.getItem('user_org');
+    const storedUser = localStorage.getItem('chat_user_id');
+    const isAdmin = localStorage.getItem('user_isadmin');
+
+    // Redirect to main chat if not authenticated or not admin
+    if (!storedOrgId || !storedUser || isAdmin !== 'true') {
+        window.location.href = '/';
+    }
+
+    const ORG_ID = storedOrgId;
+    const API_URL = window.location.origin; 
+    
+    let currentProductId = null;
+    let currentPromptId = null;
+    let mediaRecorder;
+    let audioChunks = [];
+    let recordingStartTime = 0;
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4";
+
+    document.addEventListener('DOMContentLoaded', () => loadProducts());
+
+    function logout() {
+        localStorage.clear();
+        window.location.href = '/'; // Redirect to main chat
+    }
+
+    // --- 1. LOAD PRODUCTS (Updated URL) ---
+    async function loadProducts() {
+        try {
+            // FIX: Added /prompts prefix
+            const res = await fetch(`${API_URL}/prompts/orgs/${ORG_ID}/products`);
+            if(!res.ok) throw new Error("Failed to load products");
+            const products = await res.json();
+            
+            const list = document.getElementById('productList');
+            list.innerHTML = '';
+            products.forEach(p => {
+                const div = document.createElement('div');
+                div.className = 'list-item';
+                div.innerText = p.product_name;
+                div.onclick = () => selectProduct(p.id, div);
+                list.appendChild(div);
+            });
+        } catch (e) {
+            console.error(e);
+            setStatus("Error loading products");
+        }
+    }
+
+    // --- 2. SELECT PRODUCT (Updated URL) ---
+    async function selectProduct(productId, element) {
+        currentProductId = productId;
+        currentPromptId = null; 
+        
+        document.querySelectorAll('#productList .list-item').forEach(el => el.classList.remove('active'));
+        if(element) element.classList.add('active');
+
+        document.getElementById('headerTitle').innerText = "Loading Versions...";
+        document.getElementById('promptEditor').value = "";
+        toggleButtons(false);
+
+        try {
+            // FIX: Added /prompts prefix
+            const res = await fetch(`${API_URL}/prompts/products/${productId}/prompts`);
+            const prompts = await res.json();
+            renderHistory(prompts);
+            if (prompts.length > 0) selectPrompt(prompts[0]);
+            else {
+                document.getElementById('headerTitle').innerText = "No prompts found";
+                document.getElementById('historyList').innerHTML = '<div style="padding:10px; color:#666">No versions yet.</div>';
+            }
+        } catch (e) {
+            console.error(e);
+            setStatus("Error loading versions");
+        }
+    }
+
+    function renderHistory(prompts) {
+        const list = document.getElementById('historyList');
+        list.innerHTML = '';
+        prompts.forEach(p => {
+            const div = document.createElement('div');
+            div.className = `list-item ${p.id === currentPromptId ? 'active' : ''}`;
+            div.onclick = () => selectPrompt(p);
+            let prodBadge = p.is_production ? '<span class="badge prod">PROD</span>' : '';
+            div.innerHTML = `<div><strong>v${p.version}</strong> ${prodBadge}</div><div style="font-size:0.8em; color:#666">${new Date(p.created_at).toLocaleDateString()}</div>`;
+            list.appendChild(div);
+        });
+    }
+
+    function selectPrompt(prompt) {
+        currentPromptId = prompt.id;
+        document.getElementById('promptEditor').value = prompt.prompt_text;
+        document.getElementById('headerTitle').innerText = `Version ${prompt.version}`;
+        toggleButtons(true);
+        document.getElementById('prodBtn').style.display = prompt.is_production ? 'none' : 'block';
+        updateHistoryHighlight(prompt.version);
+    }
+
+    function updateHistoryHighlight(version) {
+        Array.from(document.getElementById('historyList').children).forEach(child => {
+            if (child.innerHTML.includes(`>v${version}<`)) child.classList.add('active');
+            else child.classList.remove('active');
+        });
+    }
+
+    function toggleButtons(enabled) {
+        document.getElementById('saveBtn').disabled = !enabled;
+        document.getElementById('recordBtn').disabled = !enabled;
+    }
+
+    // --- ACTIONS (Updated URLs) ---
+
+    async function saveManualUpdate() {
+        if (!currentProductId) return;
+        const text = document.getElementById('promptEditor').value;
+        const formData = new FormData();
+        formData.append('org_id', ORG_ID);
+        formData.append('prompt_text', text);
+
+        setStatus('Saving...');
+        // FIX: Added /prompts prefix
+        await fetch(`${API_URL}/prompts/products/${currentProductId}/manual-update`, {
+            method: 'POST', body: formData
+        });
+        setStatus('Saved!');
+        selectProduct(currentProductId, document.querySelector('#productList .active'));
+    }
+
+    async function markAsProduction() {
+        if(!currentPromptId || !currentProductId) return;
+        setStatus('Promoting...');
+        // FIX: Added /prompts prefix AND fixed structure to match backend
+        await fetch(`${API_URL}/prompts/products/${currentProductId}/promote/${currentPromptId}`, { method: 'POST' });
+        setStatus('Production Updated');
+        selectProduct(currentProductId, document.querySelector('#productList .active'));
+    }
+
+    async function startRecording() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream, { mimeType: mimeType });
+            audioChunks = [];
+            recordingStartTime = Date.now();
+            document.getElementById('recordBtn').classList.add('recording');
+            document.getElementById('recordBtn').innerText = "Recording...";
+            setStatus('Listening...');
+            mediaRecorder.ondataavailable = event => { if (event.data.size > 0) audioChunks.push(event.data); };
+            mediaRecorder.start();
+        } catch (err) { setStatus("Microphone error."); }
+    }
+
+    async function stopRecording() {
+        if (!mediaRecorder || mediaRecorder.state === "inactive") return;
+        const duration = Date.now() - recordingStartTime;
+        mediaRecorder.stop();
+        document.getElementById('recordBtn').classList.remove('recording');
+        document.getElementById('recordBtn').innerText = "Hold to Speak Updates";
+        if (duration < 1000) { setStatus("Too short."); return; }
+        
+        setStatus('Processing...');
+        mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunks, { type: mimeType });
+            await sendVoiceData(audioBlob);
+        };
+    }
+
+    async function sendVoiceData(blob) {
+        const formData = new FormData();
+        const ext = mimeType.includes("webm") ? "webm" : "mp4";
+        formData.append("file", blob, `voice_instruction.${ext}`);
+        formData.append("current_prompt_id", currentPromptId);
+        formData.append("org_id", ORG_ID);
+
+        try {
+            // FIX: Added /prompts prefix
+            const res = await fetch(`${API_URL}/prompts/products/${currentProductId}/voice-update`, {
+                method: 'POST', body: formData
+            });
+            if (!res.ok) throw new Error("Update failed");
+            const data = await res.json();
+            setStatus(`Updated via voice!`);
+            selectProduct(currentProductId, document.querySelector('#productList .active'));
+        } catch (e) { setStatus(`Error: ${e.message}`); }
+    }
+
+    function setStatus(msg) { document.getElementById('status').innerText = msg; }
+</script>
+
+</body>
+</html>
