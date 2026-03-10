@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prompt Evaluation Suite</title>
+    <style>
+        :root { --primary: #10a37f; --bg: #f3f2f1; --success: #107C10; --border: #e1dfdd; --danger: #d13438; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; padding: 20px; display: flex; height: 100vh; box-sizing: border-box;}
+
+        .container { display: flex; width: 100%; gap: 20px; height: 100%; }
+
+        .sidebar-col {
+            background: white; padding: 20px; border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            display: flex; flex-direction: column; overflow: hidden;
+        }
+
+        .col-products { width: 220px; flex-shrink: 0; }
+        .col-history { width: 280px; flex-shrink: 0; }
+        .col-main { flex: 1; display: flex; flex-direction: column; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+
+        .scroll-list { flex: 1; overflow-y: auto; margin-bottom: 15px; }
+        .list-item { padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer; transition: 0.2s; }
+        .list-item:hover { background: #f9f9f9; }
+        .list-item.active { background: #e6f7f3; border-left: 4px solid var(--primary); font-weight: 600; }
+
+        h3 { margin-top: 0; border-bottom: 1px solid var(--border); padding-bottom: 10px; font-size: 1.1em;}
+        h2 { margin-top: 0; }
+        .badge { font-size: 0.75em; padding: 2px 6px; border-radius: 4px; background: #eee; float: right;}
+        .badge.prod { background: var(--success); color: white; }
+
+        .test-area { flex: 1; display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px; overflow-y: auto; }
+        .test-case { background: #f9f9f9; border: 1px solid var(--border); border-radius: 6px; padding: 15px; }
+        .test-case textarea { width: 100%; padding: 10px; font-family: monospace; border: 1px solid #ccc; border-radius: 4px; resize: vertical; font-size: 13px; min-height: 60px; }
+        .test-case-header { display: flex; justify-between; align-items: center; margin-bottom: 10px; }
+        .test-case-id { font-weight: bold; color: #666; }
+        .test-result { margin-top: 10px; padding: 10px; border-radius: 4px; font-size: 13px; }
+        .test-result.pass { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
+        .test-result.fail { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
+
+        .controls { display: flex; gap: 10px; align-items: center; padding-top: 10px; border-top: 1px solid #eee; }
+        button { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; transition: 0.2s; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-secondary { background: #6c757d; color: white; }
+        .btn-logout { background-color: #f3f2f1; color: #333; border: 1px solid #e1dfdd; width: 100%; margin-top: auto;}
+        .btn-logout:hover { background-color: #edebe9; color: #000; }
+
+        #status { margin-left: auto; color: #666; font-style: italic; font-size: 0.9em; }
+        .empty-state { text-align: center; padding: 40px; color: #999; }
+        .rubric-badge { display: inline-block; background: #e3f2fd; color: #0d47a1; padding: 4px 8px; border-radius: 4px; font-size: 0.8em; margin: 2px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- Back to Chat Button -->
+    <div style="position: absolute; top: 20px; right: 20px; z-index: 100;">
+        <button onclick="window.location.href='/'" class="btn-primary" style="padding: 8px 16px; font-size: 14px;">
+            ← Back to Chat
+        </button>
+    </div>
+
+    <!-- Products Sidebar -->
+    <div class="sidebar-col col-products">
+        <h3>Products</h3>
+        <div id="productList" class="scroll-list">Loading...</div>
+        <button class="btn-logout" onclick="logout()">Sign Out</button>
+    </div>
+
+    <!-- Versions Sidebar -->
+    <div class="sidebar-col col-history">
+        <h3>Prompt Versions</h3>
+        <div id="historyList" class="scroll-list">
+            <div style="color:#999; padding:10px;">Select a product...</div>
+        </div>
+    </div>
+
+    <!-- Main Evaluation Area -->
+    <div class="col-main">
+        <h2 id="headerTitle">Select a Prompt Version</h2>
+
+        <div style="background: #f9f9f9; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+            <div style="margin-bottom: 10px;">
+                <strong style="color: #666; font-size: 0.9em;">PROMPT TEXT</strong>
+                <div id="promptDisplay" style="margin-top: 5px; padding: 10px; background: white; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; font-size: 13px; max-height: 120px; overflow-y: auto;">
+                    Select a version to view prompt...
+                </div>
+            </div>
+            <div id="rubricDisplay" style="margin-top: 15px; display: none;">
+                <strong style="color: #666; font-size: 0.9em;">EVALUATION RUBRIC</strong>
+                <div id="rubricBadges" style="margin-top: 5px;"></div>
+            </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h3 style="margin: 0;">Test Cases</h3>
+            <div style="display: flex; gap: 10px;">
+                <button id="btnGenerate" class="btn-primary" onclick="generateTests()" disabled>Generate Tests</button>
+                <button id="btnAddTest" class="btn-secondary" onclick="addTestCase()" disabled>+ Add Test</button>
+                <button id="btnSave" class="btn-success" onclick="saveTests()" disabled style="display: none;">Save Tests</button>
+            </div>
+        </div>
+
+        <div id="testArea" class="test-area">
+            <div class="empty-state">Select a prompt version to begin evaluation</div>
+        </div>
+
+        <div class="controls">
+            <button id="btnRun" class="btn-success" onclick="runEvaluation()" disabled>Run Evaluation</button>
+            <button id="btnClear" class="btn-danger" onclick="clearResults()" disabled style="display: none;">Clear Results</button>
+            <span id="status"></span>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Use keys set by main chat
+    const storedOrgId = localStorage.getItem('user_org');
+    const storedUser = localStorage.getItem('chat_user_id');
+    const isAdmin = localStorage.getItem('user_isadmin');
+
+    // Redirect to main chat if not authenticated or not admin
+    if (!storedOrgId || !storedUser || isAdmin !== 'true') {
+        window.location.href = '/';
+    }
+
+    const ORG_ID = storedOrgId;
+    const API_URL = window.location.origin;
+
+    let currentProductId = null;
+    let currentPromptId = null;
+    let currentTests = [];
+    let evaluationResults = null;
+
+    document.addEventListener('DOMContentLoaded', () => loadProducts());
+
+    function logout() {
+        localStorage.clear();
+        window.location.href = '/';
+    }
+
+    // --- 1. LOAD PRODUCTS ---
+    async function loadProducts() {
+        try {
+            const res = await fetch(`${API_URL}/evaluator/orgs/${ORG_ID}/products`);
+            if(!res.ok) throw new Error("Failed to load products");
+            const products = await res.json();
+
+            const list = document.getElementById('productList');
+            list.innerHTML = '';
+            products.forEach(p => {
+                const div = document.createElement('div');
+                div.className = 'list-item';
+                div.innerText = p.product_name;
+                div.onclick = () => selectProduct(p.id, div);
+                list.appendChild(div);
+            });
+        } catch (e) {
+            console.error(e);
+            setStatus("Error loading products");
+        }
+    }
+
+    // --- 2. SELECT PRODUCT ---
+    async function selectProduct(productId, element) {
+        currentProductId = productId;
+        currentPromptId = null;
+        currentTests = [];
+        evaluationResults = null;
+
+        document.querySelectorAll('#productList .list-item').forEach(el => el.classList.remove('active'));
+        if(element) element.classList.add('active');
+
+        document.getElementById('headerTitle').innerText = "Loading Versions...";
+        document.getElementById('promptDisplay').innerText = "Loading...";
+        document.getElementById('testArea').innerHTML = '<div class="empty-state">Select a version...</div>';
+        toggleButtons(false);
+
+        try {
+            const res = await fetch(`${API_URL}/evaluator/products/${productId}/prompts`);
+            const prompts = await res.json();
+            renderHistory(prompts);
+            if (prompts.length > 0) selectPrompt(prompts[0]);
+            else {
+                document.getElementById('headerTitle').innerText = "No prompts found";
+                document.getElementById('historyList').innerHTML = '<div style="padding:10px; color:#666">No versions yet.</div>';
+            }
+        } catch (e) {
+            console.error(e);
+            setStatus("Error loading versions");
+        }
+    }
+
+    function renderHistory(prompts) {
+        const list = document.getElementById('historyList');
+        list.innerHTML = '';
+        prompts.forEach(p => {
+            const div = document.createElement('div');
+            div.className = `list-item ${p.id === currentPromptId ? 'active' : ''}`;
+            div.onclick = () => selectPrompt(p);
+            let prodBadge = p.is_production ? '<span class="badge prod">PROD</span>' : '';
+            div.innerHTML = `<div><strong>v${p.version}</strong> ${prodBadge}</div><div style="font-size:0.8em; color:#666">${new Date(p.created_at).toLocaleDateString()}</div>`;
+            list.appendChild(div);
+        });
+    }
+
+    // --- 3. SELECT PROMPT VERSION ---
+    async function selectPrompt(prompt) {
+        currentPromptId = prompt.id;
+        evaluationResults = null;
+
+        document.getElementById('promptDisplay').innerText = prompt.prompt_text;
+        document.getElementById('headerTitle').innerText = `Evaluating: Version ${prompt.version}`;
+        updateHistoryHighlight(prompt.version);
+
+        // Load existing test cases
+        await loadTestCases();
+
+        toggleButtons(true);
+    }
+
+    async function loadTestCases() {
+        try {
+            const res = await fetch(`${API_URL}/evaluator/prompts/${currentPromptId}/testcases`);
+            const data = await res.json();
+
+            currentTests = data.test_cases || [];
+
+            if (data.rubric) {
+                renderRubric(data.rubric);
+            } else {
+                document.getElementById('rubricDisplay').style.display = 'none';
+            }
+
+            if (currentTests.length > 0) {
+                renderTestCases();
+                document.getElementById('btnRun').disabled = false;
+            } else {
+                document.getElementById('testArea').innerHTML = '<div class="empty-state">No test cases yet. Click "Generate Tests" to create them automatically.</div>';
+                document.getElementById('btnRun').disabled = true;
+            }
+        } catch (e) {
+            console.error(e);
+            document.getElementById('testArea').innerHTML = '<div class="empty-state">No test cases found. Generate or add manually.</div>';
+            currentTests = [];
+        }
+    }
+
+    function renderRubric(rubric) {
+        if (!rubric || !rubric.metrics) return;
+
+        const display = document.getElementById('rubricDisplay');
+        const badges = document.getElementById('rubricBadges');
+
+        display.style.display = 'block';
+        badges.innerHTML = rubric.metrics.map(m =>
+            `<span class="rubric-badge" title="${m.desc || ''}">${m.name} (${m.weight})</span>`
+        ).join('');
+    }
+
+    function renderTestCases() {
+        const area = document.getElementById('testArea');
+        area.innerHTML = '';
+
+        currentTests.forEach((test, index) => {
+            const div = document.createElement('div');
+            div.className = 'test-case';
+
+            let resultHtml = '';
+            if (test.score !== undefined) {
+                const resultClass = test.score >= 70 ? 'pass' : 'fail';
+                resultHtml = `
+                    <div class="test-result ${resultClass}">
+                        <strong>Score: ${test.score.toFixed(1)}/100</strong><br>
+                        ${test.reasoning || 'No reasoning provided'}
+                    </div>
+                `;
+            }
+
+            div.innerHTML = `
+                <div class="test-case-header">
+                    <span class="test-case-id">Test Case #${index + 1}</span>
+                    <button class="btn-danger" style="padding: 4px 8px; font-size: 0.8em;" onclick="deleteTest(${index})">Delete</button>
+                </div>
+                <label style="display: block; font-size: 0.85em; color: #666; margin-bottom: 5px;">Scenario/Goal:</label>
+                <textarea id="test-goal-${index}" onchange="updateTest(${index})">${test.goal || ''}</textarea>
+                <label style="display: block; font-size: 0.85em; color: #666; margin-bottom: 5px; margin-top: 10px;">Initial Query:</label>
+                <textarea id="test-query-${index}" onchange="updateTest(${index})">${test.initial_query || ''}</textarea>
+                ${resultHtml}
+            `;
+
+            area.appendChild(div);
+        });
+
+        if (currentTests.length === 0) {
+            area.innerHTML = '<div class="empty-state">No test cases. Generate or add manually.</div>';
+        }
+    }
+
+    function updateHistoryHighlight(version) {
+        Array.from(document.getElementById('historyList').children).forEach(child => {
+            if (child.innerHTML.includes(`>v${version}<`)) child.classList.add('active');
+            else child.classList.remove('active');
+        });
+    }
+
+    function toggleButtons(enabled) {
+        document.getElementById('btnGenerate').disabled = !enabled;
+        document.getElementById('btnAddTest').disabled = !enabled;
+    }
+
+    // --- 4. GENERATE TESTS ---
+    async function generateTests() {
+        if (!currentPromptId) return;
+        if (!confirm("Generate new test cases? This will replace existing tests.")) return;
+
+        setStatus("Generating test cases...");
+        document.getElementById('btnGenerate').disabled = true;
+
+        try {
+            const res = await fetch(`${API_URL}/evaluator/prompts/${currentPromptId}/generate_tests`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ force_new: true })
+            });
+
+            if (!res.ok) throw new Error("Generation failed");
+            const data = await res.json();
+
+            currentTests = data.test_cases;
+
+            if (data.rubric) {
+                renderRubric(data.rubric);
+            }
+
+            renderTestCases();
+            setStatus("Tests generated successfully!");
+            document.getElementById('btnGenerate').disabled = false;
+            document.getElementById('btnRun').disabled = false;
+        } catch (e) {
+            console.error(e);
+            setStatus("Error: " + e.message);
+            document.getElementById('btnGenerate').disabled = false;
+        }
+    }
+
+    // --- 5. MANUAL TEST MANAGEMENT ---
+    function addTestCase() {
+        currentTests.push({ goal: '', initial_query: '', type: 'manual' });
+        renderTestCases();
+        document.getElementById('btnSave').style.display = 'inline-block';
+        document.getElementById('btnRun').disabled = false;
+    }
+
+    function updateTest(index) {
+        const goal = document.getElementById(`test-goal-${index}`).value;
+        const initial_query = document.getElementById(`test-query-${index}`).value;
+        currentTests[index] = { ...currentTests[index], goal, initial_query };
+        document.getElementById('btnSave').style.display = 'inline-block';
+    }
+
+    function deleteTest(index) {
+        if (!confirm("Delete this test case?")) return;
+        currentTests.splice(index, 1);
+        renderTestCases();
+        document.getElementById('btnSave').style.display = 'inline-block';
+
+        if (currentTests.length === 0) {
+            document.getElementById('btnRun').disabled = true;
+        }
+    }
+
+    async function saveTests() {
+        if (!currentPromptId) return;
+
+        setStatus("Saving tests...");
+
+        try {
+            const res = await fetch(`${API_URL}/evaluator/prompts/${currentPromptId}/save_testcases`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ test_cases: currentTests })
+            });
+
+            if (!res.ok) throw new Error("Save failed");
+
+            setStatus("Tests saved!");
+            document.getElementById('btnSave').style.display = 'none';
+        } catch (e) {
+            console.error(e);
+            setStatus("Error: " + e.message);
+        }
+    }
+
+    // --- 6. RUN EVALUATION ---
+    async function runEvaluation() {
+        if (!currentPromptId || currentTests.length === 0) return;
+
+        setStatus("Running evaluation...");
+        document.getElementById('btnRun').disabled = true;
+
+        // Clear previous results
+        currentTests.forEach(test => {
+            delete test.score;
+            delete test.reasoning;
+            delete test.transcript_json;
+        });
+        renderTestCases();
+
+        try {
+            const res = await fetch(`${API_URL}/evaluator/prompts/${currentPromptId}/run_evaluation`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ test_cases: currentTests })
+            });
+
+            if (!res.ok) throw new Error("Evaluation failed");
+            const data = await res.json();
+
+            // Update tests with results
+            currentTests = data.results;
+            evaluationResults = data;
+
+            if (data.rubric) {
+                renderRubric(data.rubric);
+            }
+
+            renderTestCases();
+
+            const avgScore = data.overall_score || 0;
+            setStatus(`Evaluation complete! Average Score: ${avgScore.toFixed(1)}/100`);
+            document.getElementById('btnRun').disabled = false;
+            document.getElementById('btnClear').style.display = 'inline-block';
+        } catch (e) {
+            console.error(e);
+            setStatus("Error: " + e.message);
+            document.getElementById('btnRun').disabled = false;
+        }
+    }
+
+    function clearResults() {
+        currentTests.forEach(test => {
+            delete test.score;
+            delete test.reasoning;
+            delete test.transcript_json;
+        });
+        evaluationResults = null;
+        renderTestCases();
+        document.getElementById('btnClear').style.display = 'none';
+        setStatus("");
+    }
+
+    function setStatus(msg) {
+        document.getElementById('status').innerText = msg;
+    }
+</script>
+
+</body>
+</html>
